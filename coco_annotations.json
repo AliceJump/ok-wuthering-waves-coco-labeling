@@ -1329,6 +1329,16 @@
       "id": 263,
       "name": "char_chisa2",
       "supercategory": ""
+    },
+    {
+      "id": 264,
+      "name": "char_suisui",
+      "supercategory": ""
+    },
+    {
+      "id": 265,
+      "name": "suisui_forte3",
+      "supercategory": ""
     }
   ],
   "images": [
@@ -3521,6 +3531,18 @@
       "file_name": "19.png",
       "width": 1920,
       "height": 1080
+    },
+    {
+      "id": 272,
+      "file_name": "23.png",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": 273,
+      "file_name": "24.png",
+      "width": 1920,
+      "height": 1080
     }
   ],
   "annotations": [
@@ -5636,6 +5658,32 @@
         41
       ],
       "area": 1722,
+      "iscrowd": 0
+    },
+    {
+      "id": 152,
+      "image_id": 272,
+      "category_id": 264,
+      "bbox": [
+        1773,
+        231,
+        43,
+        40
+      ],
+      "area": 1720,
+      "iscrowd": 0
+    },
+    {
+      "id": 153,
+      "image_id": 272,
+      "category_id": 265,
+      "bbox": [
+        1036,
+        981,
+        17,
+        22
+      ],
+      "area": 374,
       "iscrowd": 0
     },
     {
