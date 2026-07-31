@@ -1339,6 +1339,11 @@
       "id": 265,
       "name": "suisui_forte3",
       "supercategory": ""
+    },
+    {
+      "id": 266,
+      "name": "cancel_button_highlight_hcenter_vcenter",
+      "supercategory": ""
     }
   ],
   "images": [
@@ -3543,6 +3548,12 @@
       "file_name": "24.png",
       "width": 1920,
       "height": 1080
+    },
+    {
+      "id": 274,
+      "file_name": "31.png",
+      "width": 3840,
+      "height": 2160
     }
   ],
   "annotations": [
@@ -4066,12 +4077,12 @@
       "image_id": 230,
       "category_id": 49,
       "bbox": [
-        453,
+        455,
         644,
-        53,
+        41,
         70
       ],
-      "area": 3710,
+      "area": 2870,
       "iscrowd": 0
     },
     {
@@ -4206,12 +4217,12 @@
       "image_id": 230,
       "category_id": 104,
       "bbox": [
-        439,
+        454,
         623,
-        69,
+        42,
         104
       ],
-      "area": 7176,
+      "area": 4368,
       "iscrowd": 0
     },
     {
@@ -5702,6 +5713,19 @@
       "segmentation": []
     },
     {
+      "id": 155,
+      "image_id": 210,
+      "category_id": 121,
+      "bbox": [
+        2807,
+        1236,
+        112,
+        220
+      ],
+      "area": 24640,
+      "iscrowd": 0
+    },
+    {
       "id": 156,
       "image_id": 80,
       "category_id": 167,
@@ -5715,6 +5739,19 @@
       "iscrowd": 0,
       "ignore": 0,
       "segmentation": []
+    },
+    {
+      "id": 157,
+      "image_id": 274,
+      "category_id": 266,
+      "bbox": [
+        914,
+        1255,
+        82,
+        209
+      ],
+      "area": 17138,
+      "iscrowd": 0
     },
     {
       "id": 158,
@@ -7212,21 +7249,6 @@
         66.90265486725667
       ],
       "area": 5328.530033675304,
-      "iscrowd": 0,
-      "ignore": 0,
-      "segmentation": []
-    },
-    {
-      "id": 416,
-      "image_id": 210,
-      "category_id": 121,
-      "bbox": [
-        2806.725663716814,
-        1236.1061946902657,
-        111.50442477876004,
-        219.82300884955748
-      ],
-      "area": 24511.238154906187,
       "iscrowd": 0,
       "ignore": 0,
       "segmentation": []
