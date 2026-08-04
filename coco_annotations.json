@@ -1369,6 +1369,11 @@
       "id": 271,
       "name": "suisui_forte2",
       "supercategory": ""
+    },
+    {
+      "id": 272,
+      "name": "denia_end_lib",
+      "supercategory": ""
     }
   ],
   "images": [
@@ -3601,6 +3606,12 @@
     {
       "id": 278,
       "file_name": "39.png",
+      "width": 3840,
+      "height": 2160
+    },
+    {
+      "id": 281,
+      "file_name": "48.png",
       "width": 3840,
       "height": 2160
     }
@@ -5872,6 +5883,19 @@
       "iscrowd": 0,
       "ignore": 0,
       "segmentation": []
+    },
+    {
+      "id": 163,
+      "image_id": 281,
+      "category_id": 272,
+      "bbox": [
+        3593,
+        1886,
+        70,
+        87
+      ],
+      "area": 6090,
+      "iscrowd": 0
     },
     {
       "id": 164,
