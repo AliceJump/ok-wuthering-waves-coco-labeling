@@ -1359,6 +1359,16 @@
       "id": 269,
       "name": "chisa_e2",
       "supercategory": ""
+    },
+    {
+      "id": 270,
+      "name": "suisui_e1",
+      "supercategory": ""
+    },
+    {
+      "id": 271,
+      "name": "suisui_forte2",
+      "supercategory": ""
     }
   ],
   "images": [
@@ -3587,6 +3597,12 @@
       "file_name": "Chisa_e2.png",
       "width": 1920,
       "height": 1080
+    },
+    {
+      "id": 278,
+      "file_name": "39.png",
+      "width": 3840,
+      "height": 2160
     }
   ],
   "annotations": [
@@ -5819,7 +5835,7 @@
     {
       "id": 160,
       "image_id": 272,
-      "category_id": 267,
+      "category_id": 271,
       "bbox": [
         947,
         986,
@@ -5827,6 +5843,19 @@
         19
       ],
       "area": 209,
+      "iscrowd": 0
+    },
+    {
+      "id": 161,
+      "image_id": 278,
+      "category_id": 270,
+      "bbox": [
+        3211,
+        1896,
+        69,
+        78
+      ],
+      "area": 5382,
       "iscrowd": 0
     },
     {
