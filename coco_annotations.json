@@ -1344,6 +1344,11 @@
       "id": 266,
       "name": "cancel_button_highlight_hcenter_vcenter",
       "supercategory": ""
+    },
+    {
+      "id": 267,
+      "name": "suisui_forte2",
+      "supercategory": ""
     }
   ],
   "images": [
@@ -5782,6 +5787,19 @@
       "iscrowd": 0,
       "ignore": 0,
       "segmentation": []
+    },
+    {
+      "id": 160,
+      "image_id": 272,
+      "category_id": 267,
+      "bbox": [
+        947,
+        986,
+        11,
+        19
+      ],
+      "area": 209,
+      "iscrowd": 0
     },
     {
       "id": 162,
