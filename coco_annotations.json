@@ -355,24 +355,6 @@
       "id": 39
     },
     {
-      "license": 0,
-      "url": null,
-      "file_name": "51a913d6-BitBlt_True_3840x2160_1753322268750.7454_original.png",
-      "height": 2160,
-      "width": 3840,
-      "date_captured": null,
-      "id": 40
-    },
-    {
-      "license": 0,
-      "url": null,
-      "file_name": "51a913d6-BitBlt_True_3840x2160_1753322268750.7454_original.png",
-      "height": 2160,
-      "width": 3840,
-      "date_captured": null,
-      "id": 41
-    },
-    {
       "id": 42,
       "file_name": "hiyuki1.png",
       "width": 3840,
@@ -596,24 +578,6 @@
       "width": 3840,
       "date_captured": null,
       "id": 67
-    },
-    {
-      "license": 0,
-      "url": null,
-      "file_name": "7551d5d1-Windows_Graphics_Capture_3840x2160_1766656045911.5557_original.png",
-      "height": 2160,
-      "width": 3840,
-      "date_captured": null,
-      "id": 68
-    },
-    {
-      "license": 0,
-      "url": null,
-      "file_name": "7551d5d1-Windows_Graphics_Capture_3840x2160_1766656045911.5557_original.png",
-      "height": 2160,
-      "width": 3840,
-      "date_captured": null,
-      "id": 69
     },
     {
       "license": 0,
@@ -2261,6 +2225,24 @@
       "file_name": "51.png",
       "width": 3840,
       "height": 2160
+    },
+    {
+      "id": 287,
+      "file_name": "47.png",
+      "width": 3840,
+      "height": 2160
+    },
+    {
+      "id": 288,
+      "file_name": "52.png",
+      "width": 3840,
+      "height": 2160
+    },
+    {
+      "id": 289,
+      "file_name": "53.png",
+      "width": 3840,
+      "height": 2160
     }
   ],
   "annotations": [
@@ -3294,18 +3276,16 @@
     },
     {
       "id": 74,
-      "image_id": 40,
+      "image_id": 289,
       "category_id": 206,
       "bbox": [
-        305.18053375196234,
-        88.16326530612245,
-        71.20879120879113,
-        84.77237048665621
+        179,
+        104,
+        55,
+        58
       ],
-      "area": 6036.538030258589,
-      "iscrowd": 0,
-      "ignore": 0,
-      "segmentation": []
+      "area": 3190,
+      "iscrowd": 0
     },
     {
       "id": 75,
@@ -4126,18 +4106,16 @@
     },
     {
       "id": 134,
-      "image_id": 68,
+      "image_id": 287,
       "category_id": 207,
       "bbox": [
-        226.59784797375698,
-        339.79126608697385,
-        50.82399232155717,
-        56.076706267391614
+        136,
+        350,
+        42,
+        37
       ],
-      "area": 2850.042088752128,
-      "iscrowd": 0,
-      "ignore": 0,
-      "segmentation": []
+      "area": 1554,
+      "iscrowd": 0
     },
     {
       "id": 135,
