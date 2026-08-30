@@ -355,6 +355,12 @@
       "id": 39
     },
     {
+      "id": 40,
+      "file_name": "54.png",
+      "width": 1920,
+      "height": 1080
+    },
+    {
       "id": 42,
       "file_name": "hiyuki1.png",
       "width": 3840,
@@ -4693,6 +4699,32 @@
       "segmentation": []
     },
     {
+      "id": 176,
+      "image_id": 40,
+      "category_id": 278,
+      "bbox": [
+        1770,
+        224,
+        42,
+        51
+      ],
+      "area": 2142,
+      "iscrowd": 0
+    },
+    {
+      "id": 177,
+      "image_id": 40,
+      "category_id": 279,
+      "bbox": [
+        1767,
+        357,
+        50,
+        53
+      ],
+      "area": 2650,
+      "iscrowd": 0
+    },
+    {
       "id": 178,
       "image_id": 90,
       "category_id": 64,
@@ -4721,6 +4753,19 @@
       "iscrowd": 0,
       "ignore": 0,
       "segmentation": []
+    },
+    {
+      "id": 180,
+      "image_id": 40,
+      "category_id": 280,
+      "bbox": [
+        1770,
+        493,
+        51,
+        50
+      ],
+      "area": 2550,
+      "iscrowd": 0
     },
     {
       "id": 182,
@@ -7588,6 +7633,21 @@
     {
       "id": 277,
       "name": "qingxiao_h2",
+      "supercategory": ""
+    },
+    {
+      "id": 278,
+      "name": "char_aalto",
+      "supercategory": ""
+    },
+    {
+      "id": 279,
+      "name": "char_lumi",
+      "supercategory": ""
+    },
+    {
+      "id": 280,
+      "name": "char_yangyang",
       "supercategory": ""
     }
   ]
