@@ -2249,6 +2249,12 @@
       "file_name": "53.png",
       "width": 3840,
       "height": 2160
+    },
+    {
+      "id": 290,
+      "file_name": "55.png",
+      "width": 3840,
+      "height": 2160
     }
   ],
   "annotations": [
@@ -4765,6 +4771,19 @@
         50
       ],
       "area": 2550,
+      "iscrowd": 0
+    },
+    {
+      "id": 181,
+      "image_id": 290,
+      "category_id": 281,
+      "bbox": [
+        3542,
+        464,
+        85,
+        61
+      ],
+      "area": 5185,
       "iscrowd": 0
     },
     {
@@ -7648,6 +7667,11 @@
     {
       "id": 280,
       "name": "char_yangyang",
+      "supercategory": ""
+    },
+    {
+      "id": 281,
+      "name": "char_jingran",
       "supercategory": ""
     }
   ]
