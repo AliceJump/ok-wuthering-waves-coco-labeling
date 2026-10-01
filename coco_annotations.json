@@ -2255,6 +2255,36 @@
       "file_name": "55.png",
       "width": 3840,
       "height": 2160
+    },
+    {
+      "id": 291,
+      "file_name": "56.png",
+      "width": 3840,
+      "height": 2160
+    },
+    {
+      "id": 292,
+      "file_name": "57.png",
+      "width": 3840,
+      "height": 2160
+    },
+    {
+      "id": 293,
+      "file_name": "58.png",
+      "width": 3840,
+      "height": 2160
+    },
+    {
+      "id": 294,
+      "file_name": "59.png",
+      "width": 3840,
+      "height": 2160
+    },
+    {
+      "id": 295,
+      "file_name": "60.png",
+      "width": 3840,
+      "height": 2160
     }
   ],
   "annotations": [
@@ -4802,6 +4832,19 @@
       "segmentation": []
     },
     {
+      "id": 183,
+      "image_id": 291,
+      "category_id": 282,
+      "bbox": [
+        3552,
+        442,
+        77,
+        86
+      ],
+      "area": 6622,
+      "iscrowd": 0
+    },
+    {
       "id": 184,
       "image_id": 94,
       "category_id": 218,
@@ -4815,6 +4858,19 @@
       "iscrowd": 0,
       "ignore": 0,
       "segmentation": []
+    },
+    {
+      "id": 185,
+      "image_id": 292,
+      "category_id": 283,
+      "bbox": [
+        3588,
+        1894,
+        83,
+        80
+      ],
+      "area": 6640,
+      "iscrowd": 0
     },
     {
       "id": 186,
@@ -4845,6 +4901,45 @@
       "iscrowd": 0,
       "ignore": 0,
       "segmentation": []
+    },
+    {
+      "id": 188,
+      "image_id": 293,
+      "category_id": 284,
+      "bbox": [
+        2826,
+        1893,
+        82,
+        79
+      ],
+      "area": 6478,
+      "iscrowd": 0
+    },
+    {
+      "id": 189,
+      "image_id": 294,
+      "category_id": 285,
+      "bbox": [
+        2825,
+        1890,
+        87,
+        79
+      ],
+      "area": 6873,
+      "iscrowd": 0
+    },
+    {
+      "id": 190,
+      "image_id": 295,
+      "category_id": 286,
+      "bbox": [
+        3587,
+        1891,
+        90,
+        93
+      ],
+      "area": 8370,
+      "iscrowd": 0
     },
     {
       "id": 198,
@@ -7672,6 +7767,31 @@
     {
       "id": 281,
       "name": "char_jingran",
+      "supercategory": ""
+    },
+    {
+      "id": 282,
+      "name": "char_hsin",
+      "supercategory": ""
+    },
+    {
+      "id": 283,
+      "name": "hsin_lib1",
+      "supercategory": ""
+    },
+    {
+      "id": 284,
+      "name": "hsin_h1",
+      "supercategory": ""
+    },
+    {
+      "id": 285,
+      "name": "hsin_h2",
+      "supercategory": ""
+    },
+    {
+      "id": 286,
+      "name": "hsin_lib2",
       "supercategory": ""
     }
   ]
