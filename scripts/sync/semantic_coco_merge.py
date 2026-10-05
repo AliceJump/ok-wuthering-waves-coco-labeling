@@ -234,8 +234,18 @@ def resolve_added_source_image(
     target_path = physical_matches[0] if physical_matches else None
 
     if target_path is None:
+        # A target registration already used by a target annotation owns its
+        # missing-file state. Never fill that registration with source bytes,
+        # or the existing target bbox would silently start referring to source
+        # image content. Only redundant/unreferenced target registrations may
+        # be reused when their physical file is missing.
+        unreferenced_matches = [
+            item
+            for item in metadata_matches
+            if int(item["id"]) not in target_referenced_ids
+        ]
         reusable = choose_reusable_image_registration(
-            metadata_matches,
+            unreferenced_matches,
             image,
             preferred_id=source_id,
             referenced_ids=target_referenced_ids,
@@ -250,9 +260,13 @@ def resolve_added_source_image(
             return target_name, int(reusable["id"]), "restored-target-metadata-file"
 
         if metadata_matches:
-            # Target metadata owns this source name but is incompatible with
-            # the incoming image dimensions. Keep target metadata untouched and
-            # place the source image under a deterministic new name.
+            # Target metadata owns this source name. If no unreferenced target
+            # registration can safely absorb the source image, keep every
+            # target registration and its missing-file state untouched. The
+            # merge may already have materialized source_name, so remove that
+            # source path before placing the source bytes under a deterministic
+            # new name.
+            git("rm", "-f", "--ignore-unmatch", "--", source_name, check=False)
             new_name = unique_hashed_name(source_name, source_data, occupied_paths_by_key)
             path = Path(new_name)
             path.parent.mkdir(parents=True, exist_ok=True)
