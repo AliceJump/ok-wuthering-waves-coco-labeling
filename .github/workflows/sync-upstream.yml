@@ -1,0 +1,194 @@
+name: Sync branch with upstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch in this repository to update
+        required: true
+        default: master
+        type: string
+      upstream_repository:
+        description: Upstream owner/repository (leave empty to use fork parent)
+        required: false
+        default: ""
+        type: string
+      upstream_branch:
+        description: Upstream branch to merge
+        required: true
+        default: master
+        type: string
+      dry_run:
+        description: Resolve and validate without committing or pushing
+        required: true
+        default: true
+        type: boolean
+  pull_request:
+    paths:
+      - .github/workflows/sync-upstream.yml
+      - scripts/sync/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-${{ inputs.target_branch || github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: ${{ inputs.target_branch || github.head_ref }}
+      UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'master' }}
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch || github.head_ref }}
+          fetch-depth: 0
+          path: target
+
+      - name: Checkout sync tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.event.repository.default_branch }}
+          fetch-depth: 1
+          path: tooling
+          sparse-checkout: |
+            scripts/sync
+          sparse-checkout-cone-mode: false
+
+      - name: Test semantic resolver
+        shell: bash
+        run: python -m unittest tooling/scripts/sync/test_semantic_coco_merge.py -v
+
+      - name: Resolve upstream repository
+        id: upstream
+        env:
+          REQUESTED_UPSTREAM: ${{ inputs.upstream_repository }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$REQUESTED_UPSTREAM" ]]; then
+            upstream="$REQUESTED_UPSTREAM"
+          else
+            upstream="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.parent.full_name // empty')"
+          fi
+          if [[ -z "$upstream" ]]; then
+            echo "No fork parent found. Supply upstream_repository explicitly." >&2
+            exit 1
+          fi
+          echo "repository=$upstream" >> "$GITHUB_OUTPUT"
+          echo "Using upstream: $upstream"
+
+      - name: Fetch and compare upstream
+        id: compare
+        working-directory: target
+        env:
+          UPSTREAM_REPOSITORY: ${{ steps.upstream.outputs.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch upstream "$UPSTREAM_BRANCH"
+
+          original_head="$(git rev-parse HEAD)"
+          upstream_ref="upstream/$UPSTREAM_BRANCH"
+          merge_base="$(git merge-base "$original_head" "$upstream_ref")"
+          counts="$(git rev-list --left-right --count "$original_head...$upstream_ref")"
+          ahead="$(awk '{print $1}' <<< "$counts")"
+          behind="$(awk '{print $2}' <<< "$counts")"
+
+          echo "original_head=$original_head" >> "$GITHUB_OUTPUT"
+          echo "merge_base=$merge_base" >> "$GITHUB_OUTPUT"
+          echo "upstream_ref=$upstream_ref" >> "$GITHUB_OUTPUT"
+          echo "ahead=$ahead" >> "$GITHUB_OUTPUT"
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+
+          echo "Target:   $TARGET_BRANCH @ $original_head"
+          echo "Upstream: $UPSTREAM_REPOSITORY:$UPSTREAM_BRANCH"
+          echo "Merge base: $merge_base"
+          echo "Ahead: $ahead"
+          echo "Behind: $behind"
+
+      - name: Merge upstream and resolve semantic conflicts
+        working-directory: target
+        env:
+          ORIGINAL_HEAD: ${{ steps.compare.outputs.original_head }}
+          MERGE_BASE: ${{ steps.compare.outputs.merge_base }}
+          UPSTREAM_REF: ${{ steps.compare.outputs.upstream_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          git merge --no-ff --no-commit "$UPSTREAM_REF"
+          merge_rc=$?
+          set -e
+
+          if [[ $merge_rc -ne 0 ]]; then
+            echo "Git reported conflicts; semantic resolver will handle supported COCO/image conflicts."
+            git diff --name-only --diff-filter=U || true
+          fi
+
+          python ../tooling/scripts/sync/semantic_coco_merge.py \
+            --base-ref "$MERGE_BASE" \
+            --ours-ref "$ORIGINAL_HEAD" \
+            --theirs-ref "$UPSTREAM_REF" \
+            --coco coco_annotations.json
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Unsupported merge conflicts remain:" >&2
+            git diff --name-only --diff-filter=U >&2
+            exit 1
+          fi
+
+      - name: Show resolved result
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --short
+          echo
+          git diff --cached --stat || true
+
+      - name: Dry-run summary
+        if: ${{ github.event_name == 'pull_request' || inputs.dry_run }}
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Dry run complete: no commit or push was performed."
+          if [[ -f .git/MERGE_HEAD ]]; then
+            git merge --abort
+          fi
+
+      - name: Commit and push
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
+        working-directory: target
+        env:
+          ORIGINAL_HEAD: ${{ steps.compare.outputs.original_head }}
+          UPSTREAM_REPOSITORY: ${{ steps.upstream.outputs.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote_head="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | awk '{print $1}')"
+          if [[ "$remote_head" != "$ORIGINAL_HEAD" ]]; then
+            echo "Target branch moved while this workflow was running." >&2
+            echo "Expected: $ORIGINAL_HEAD" >&2
+            echo "Actual:   $remote_head" >&2
+            exit 1
+          fi
+
+          if git diff --cached --quiet && [[ ! -f .git/MERGE_HEAD ]]; then
+            echo "Nothing to commit; branch is already synchronized."
+            exit 0
+          fi
+
+          git commit -m "Merge ${UPSTREAM_REPOSITORY}:${UPSTREAM_BRANCH} into ${TARGET_BRANCH}"
+          git push origin "HEAD:$TARGET_BRANCH"
