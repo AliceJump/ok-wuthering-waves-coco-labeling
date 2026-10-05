@@ -1,0 +1,93 @@
+name: Resolve PR 6 conflict
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge upstream and rebuild Lingyang annotation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "AliceJump"
+          git config user.email "149395013+AliceJump@users.noreply.github.com"
+          git remote add upstream https://github.com/ok-oldking/ok-wuthering-waves-coco-labeling.git || true
+          git fetch upstream master
+          cp QQ20260830-103805.png /tmp/lingyang.png
+
+          set +e
+          git merge --no-commit --no-ff upstream/master
+          merge_status=$?
+          set -e
+          echo "merge status: ${merge_status}"
+
+          git checkout upstream/master -- coco_annotations.json
+          cp /tmp/lingyang.png QQ20260830-103805.png
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("coco_annotations.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          image_id = 41
+          annotation_id = 440
+          category_id = 287
+
+          image_ids = {item["id"] for item in data["images"]}
+          annotation_ids = {item["id"] for item in data["annotations"]}
+          category_ids = {item["id"] for item in data["categories"]}
+          category_names = {item["name"] for item in data["categories"]}
+
+          assert image_id not in image_ids, f"image id {image_id} is already used"
+          assert annotation_id not in annotation_ids, f"annotation id {annotation_id} is already used"
+          assert category_id not in category_ids, f"category id {category_id} is already used"
+          assert "char_lingyang" not in category_names, "char_lingyang already exists upstream"
+
+          data["images"].append({
+              "id": image_id,
+              "file_name": "QQ20260830-103805.png",
+              "width": 2560,
+              "height": 1440,
+          })
+          data["annotations"].append({
+              "id": annotation_id,
+              "image_id": image_id,
+              "category_id": category_id,
+              "bbox": [2355, 304, 62, 52],
+              "area": 3224,
+              "iscrowd": 0,
+          })
+          data["categories"].append({
+              "id": category_id,
+              "name": "char_lingyang",
+              "supercategory": "",
+          })
+
+          data["images"].sort(key=lambda item: item["id"])
+          data["annotations"].sort(key=lambda item: item["id"])
+          data["categories"].sort(key=lambda item: item["id"])
+
+          assert len({x["id"] for x in data["images"]}) == len(data["images"])
+          assert len({x["id"] for x in data["annotations"]}) == len(data["annotations"])
+          assert len({x["id"] for x in data["categories"]}) == len(data["categories"])
+          assert any(x["name"] == "char_lingyang" and x["id"] == category_id for x in data["categories"])
+
+          path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+          PY
+
+          rm -f .github/workflows/fix-pr6.yml
+          git add -A
+          git commit -m "Merge latest upstream and resolve Lingyang annotation IDs"
+          git push origin HEAD:master
