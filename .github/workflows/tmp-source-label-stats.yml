@@ -41,7 +41,10 @@ jobs:
               for k, ids in duplicate_files.items()
               if len([i for i in ids if i in referenced]) > 1
           }
-          missing = sorted({x['file_name'] for x in images if not Path(x['file_name']).is_file()})
+          missing_entries = [x for x in images if not Path(x['file_name']).is_file()]
+          missing_names = sorted({x['file_name'] for x in missing_entries})
+          missing_referenced = [x for x in missing_entries if x['id'] in referenced]
+          missing_unreferenced = [x for x in missing_entries if x['id'] not in referenced]
 
           multi_ann = []
           multi_image = []
@@ -56,9 +59,14 @@ jobs:
           print(f'images={len(images)} unique_file_names={len(files)} duplicate_file_groups={len(duplicate_files)}')
           print(f'annotations={len(annotations)} categories={len(categories)} referenced_images={len(referenced)}')
           print(f'duplicate_file_groups_with_multiple_referenced_ids={len(duplicate_referenced)}')
-          print(f'missing_source_files={len(missing)}')
+          print(f'missing_source_files={len(missing_names)} missing_referenced_entries={len(missing_referenced)} missing_unreferenced_entries={len(missing_unreferenced)}')
           print(f'categories_with_multiple_annotations={len(multi_ann)}')
           print(f'categories_spanning_multiple_image_ids={len(multi_image)}')
+
+          print('\nMISSING REFERENCED SOURCE IMAGES:')
+          for image in missing_referenced:
+              labels = [cat_by_id.get(a['category_id'], {}).get('name') for a in anns_by_image[image['id']]]
+              print(image['id'], image['file_name'], labels)
 
           print('\nDUPLICATE FILE GROUPS WITH MULTIPLE REFERENCED IDS:')
           for name, ids in sorted(duplicate_referenced.items())[:100]:
@@ -71,7 +79,3 @@ jobs:
           print('\nCATEGORIES SPANNING MULTIPLE IMAGES:')
           for row in sorted(multi_image)[:200]:
               print(row)
-
-          print('\nMISSING SOURCE FILES:')
-          for name in missing[:200]:
-              print(name)
