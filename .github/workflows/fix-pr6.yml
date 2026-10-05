@@ -1,7 +1,7 @@
 name: Resolve PR 6 conflict
 
 on:
-  issues:
+  pull_request:
     types: [opened]
 
 permissions:
@@ -9,11 +9,12 @@ permissions:
 
 jobs:
   resolve:
-    if: github.event.issue.title == 'trigger-pr6-resolver'
+    if: github.event.pull_request.title == 'trigger-pr6-resolver'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: master
           fetch-depth: 0
       - name: Merge upstream and rebuild Lingyang annotation
         shell: bash
