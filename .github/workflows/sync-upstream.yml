@@ -1,22 +1,32 @@
-name: Sync branch with upstream
+name: Semantic merge into receiver
 
 on:
   workflow_dispatch:
     inputs:
-      target_branch:
-        description: Branch in this repository to update
-        required: true
-        default: master
-        type: string
-      upstream_repository:
-        description: Upstream owner/repository (leave empty to use fork parent)
+      receiver_repository:
+        description: Receiving repository (leave empty for this repository)
         required: false
         default: ""
         type: string
-      upstream_branch:
-        description: Upstream branch to merge
+      receiver_ref:
+        description: Receiving branch, tag, or commit SHA
         required: true
         default: master
+        type: string
+      source_repository:
+        description: Import source repository (leave empty to use receiver fork parent)
+        required: false
+        default: ""
+        type: string
+      source_ref:
+        description: Import source branch, tag, or commit SHA
+        required: true
+        default: master
+        type: string
+      output_branch:
+        description: Branch to push the result to; required when receiver_ref is not a branch
+        required: false
+        default: ""
         type: string
       dry_run:
         description: Resolve and validate without committing or pushing
@@ -32,24 +42,14 @@ permissions:
   contents: write
 
 concurrency:
-  group: sync-upstream-${{ inputs.target_branch || github.head_ref || github.ref_name }}
+  group: semantic-merge-${{ inputs.receiver_repository || github.repository }}-${{ inputs.output_branch || inputs.receiver_ref || github.base_ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  sync:
+  merge:
     runs-on: ubuntu-latest
-    env:
-      TARGET_BRANCH: ${{ inputs.target_branch || github.head_ref }}
-      UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'master' }}
     steps:
-      - name: Checkout target branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.target_branch || github.head_ref }}
-          fetch-depth: 0
-          path: target
-
-      - name: Checkout sync tooling
+      - name: Checkout merge tooling
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.event.repository.default_branch }}
@@ -63,82 +63,138 @@ jobs:
         shell: bash
         run: python -m unittest tooling/scripts/sync/test_semantic_coco_merge.py -v
 
-      - name: Resolve upstream repository
-        id: upstream
+      - name: Resolve receiver and source
+        id: refs
         env:
-          REQUESTED_UPSTREAM: ${{ inputs.upstream_repository }}
+          REQUESTED_RECEIVER_REPOSITORY: ${{ inputs.receiver_repository }}
+          REQUESTED_RECEIVER_REF: ${{ inputs.receiver_ref }}
+          REQUESTED_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
+          REQUESTED_OUTPUT_BRANCH: ${{ inputs.output_branch }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -n "$REQUESTED_UPSTREAM" ]]; then
-            upstream="$REQUESTED_UPSTREAM"
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            receiver_repository="$GITHUB_REPOSITORY"
+            receiver_ref="$GITHUB_BASE_REF"
+            source_repository="$GITHUB_REPOSITORY"
+            source_ref="$GITHUB_HEAD_REF"
+            output_branch=""
           else
-            upstream="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.parent.full_name // empty')"
+            receiver_repository="${REQUESTED_RECEIVER_REPOSITORY:-$GITHUB_REPOSITORY}"
+            receiver_ref="$REQUESTED_RECEIVER_REF"
+            source_repository="$REQUESTED_SOURCE_REPOSITORY"
+            source_ref="$REQUESTED_SOURCE_REF"
+            output_branch="$REQUESTED_OUTPUT_BRANCH"
+
+            if [[ -z "$source_repository" ]]; then
+              source_repository="$(gh api "repos/${receiver_repository}" --jq '.parent.full_name // empty')"
+              if [[ -z "$source_repository" ]]; then
+                echo "No fork parent found for ${receiver_repository}; supply source_repository explicitly." >&2
+                exit 1
+              fi
+            fi
           fi
-          if [[ -z "$upstream" ]]; then
-            echo "No fork parent found. Supply upstream_repository explicitly." >&2
+
+          for repository in "$receiver_repository" "$source_repository"; do
+            if [[ ! "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+              echo "Invalid repository: $repository" >&2
+              exit 1
+            fi
+          done
+          if [[ -z "$receiver_ref" || -z "$source_ref" ]]; then
+            echo "receiver_ref and source_ref must not be empty." >&2
             exit 1
           fi
-          echo "repository=$upstream" >> "$GITHUB_OUTPUT"
-          echo "Using upstream: $upstream"
 
-      - name: Fetch and compare upstream
+          echo "receiver_repository=$receiver_repository" >> "$GITHUB_OUTPUT"
+          echo "receiver_ref=$receiver_ref" >> "$GITHUB_OUTPUT"
+          echo "source_repository=$source_repository" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$source_ref" >> "$GITHUB_OUTPUT"
+          echo "output_branch=$output_branch" >> "$GITHUB_OUTPUT"
+
+          echo "Receiver: ${receiver_repository}@${receiver_ref}"
+          echo "Source:   ${source_repository}@${source_ref}"
+          [[ -z "$output_branch" ]] || echo "Output:   ${receiver_repository}:${output_branch}"
+
+      - name: Fetch refs and compare
         id: compare
-        working-directory: target
         env:
-          UPSTREAM_REPOSITORY: ${{ steps.upstream.outputs.repository }}
+          RECEIVER_REPOSITORY: ${{ steps.refs.outputs.receiver_repository }}
+          RECEIVER_REF: ${{ steps.refs.outputs.receiver_ref }}
+          SOURCE_REPOSITORY: ${{ steps.refs.outputs.source_repository }}
+          SOURCE_REF: ${{ steps.refs.outputs.source_ref }}
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf target
+          git init target
+          cd target
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote remove upstream 2>/dev/null || true
-          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
-          git fetch upstream "$UPSTREAM_BRANCH"
 
-          original_head="$(git rev-parse HEAD)"
-          upstream_ref="upstream/$UPSTREAM_BRANCH"
-          merge_base="$(git merge-base "$original_head" "$upstream_ref")"
-          counts="$(git rev-list --left-right --count "$original_head...$upstream_ref")"
-          ahead="$(awk '{print $1}' <<< "$counts")"
-          behind="$(awk '{print $2}' <<< "$counts")"
+          git remote add receiver "https://github.com/${RECEIVER_REPOSITORY}.git"
+          git fetch --no-tags receiver "$RECEIVER_REF"
+          receiver_sha="$(git rev-parse FETCH_HEAD)"
+          git checkout --detach "$receiver_sha"
 
-          echo "original_head=$original_head" >> "$GITHUB_OUTPUT"
+          git remote add source "https://github.com/${SOURCE_REPOSITORY}.git"
+          git fetch --no-tags source "$SOURCE_REF"
+          source_sha="$(git rev-parse FETCH_HEAD)"
+
+          merge_base="$(git merge-base "$receiver_sha" "$source_sha" || true)"
+          if [[ -z "$merge_base" ]]; then
+            echo "Receiver and source do not share a Git merge base." >&2
+            exit 1
+          fi
+
+          receiver_branch=""
+          if git ls-remote --exit-code --heads receiver "refs/heads/$RECEIVER_REF" >/dev/null 2>&1; then
+            receiver_branch="$RECEIVER_REF"
+          fi
+
+          counts="$(git rev-list --left-right --count "$receiver_sha...$source_sha")"
+          receiver_only="$(awk '{print $1}' <<< "$counts")"
+          source_only="$(awk '{print $2}' <<< "$counts")"
+
+          echo "receiver_sha=$receiver_sha" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "merge_base=$merge_base" >> "$GITHUB_OUTPUT"
-          echo "upstream_ref=$upstream_ref" >> "$GITHUB_OUTPUT"
-          echo "ahead=$ahead" >> "$GITHUB_OUTPUT"
-          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "receiver_branch=$receiver_branch" >> "$GITHUB_OUTPUT"
+          echo "receiver_only=$receiver_only" >> "$GITHUB_OUTPUT"
+          echo "source_only=$source_only" >> "$GITHUB_OUTPUT"
 
-          echo "Target:   $TARGET_BRANCH @ $original_head"
-          echo "Upstream: $UPSTREAM_REPOSITORY:$UPSTREAM_BRANCH"
-          echo "Merge base: $merge_base"
-          echo "Ahead: $ahead"
-          echo "Behind: $behind"
+          echo "Receiver SHA: $receiver_sha"
+          echo "Source SHA:   $source_sha"
+          echo "Merge base:   $merge_base"
+          echo "Receiver-only commits: $receiver_only"
+          echo "Source-only commits:   $source_only"
 
-      - name: Merge upstream and resolve semantic conflicts
+      - name: Merge source into receiver with receiver priority
         working-directory: target
         env:
-          ORIGINAL_HEAD: ${{ steps.compare.outputs.original_head }}
+          RECEIVER_SHA: ${{ steps.compare.outputs.receiver_sha }}
+          SOURCE_SHA: ${{ steps.compare.outputs.source_sha }}
           MERGE_BASE: ${{ steps.compare.outputs.merge_base }}
-          UPSTREAM_REF: ${{ steps.compare.outputs.upstream_ref }}
         shell: bash
         run: |
           set -euo pipefail
           set +e
-          git merge --no-ff --no-commit "$UPSTREAM_REF"
+          git merge --no-ff --no-commit "$SOURCE_SHA"
           merge_rc=$?
           set -e
 
           if [[ $merge_rc -ne 0 ]]; then
-            echo "Git reported conflicts; semantic resolver will handle supported COCO/image conflicts."
+            echo "Git reported conflicts; receiver-priority semantic resolution will handle supported COCO/image conflicts."
             git diff --name-only --diff-filter=U || true
           fi
 
           python ../tooling/scripts/sync/semantic_coco_merge.py \
             --base-ref "$MERGE_BASE" \
-            --ours-ref "$ORIGINAL_HEAD" \
-            --theirs-ref "$UPSTREAM_REF" \
+            --target-ref "$RECEIVER_SHA" \
+            --source-ref "$SOURCE_SHA" \
             --coco coco_annotations.json
 
           if git diff --name-only --diff-filter=U | grep -q .; then
@@ -159,36 +215,69 @@ jobs:
       - name: Dry-run summary
         if: ${{ github.event_name == 'pull_request' || inputs.dry_run }}
         working-directory: target
+        env:
+          RECEIVER_REPOSITORY: ${{ steps.refs.outputs.receiver_repository }}
+          RECEIVER_REF: ${{ steps.refs.outputs.receiver_ref }}
+          SOURCE_REPOSITORY: ${{ steps.refs.outputs.source_repository }}
+          SOURCE_REF: ${{ steps.refs.outputs.source_ref }}
         shell: bash
         run: |
           set -euo pipefail
-          echo "Dry run complete: no commit or push was performed."
+          echo "Dry run complete. Receiver was preserved; only source-side conflicts were remapped."
+          echo "Receiver: ${RECEIVER_REPOSITORY}@${RECEIVER_REF}"
+          echo "Source:   ${SOURCE_REPOSITORY}@${SOURCE_REF}"
           if [[ -f .git/MERGE_HEAD ]]; then
             git merge --abort
           fi
 
-      - name: Commit and push
+      - name: Commit and push result
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
         working-directory: target
         env:
-          ORIGINAL_HEAD: ${{ steps.compare.outputs.original_head }}
-          UPSTREAM_REPOSITORY: ${{ steps.upstream.outputs.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RECEIVER_REPOSITORY: ${{ steps.refs.outputs.receiver_repository }}
+          RECEIVER_REF: ${{ steps.refs.outputs.receiver_ref }}
+          REQUESTED_OUTPUT_BRANCH: ${{ steps.refs.outputs.output_branch }}
+          RECEIVER_BRANCH: ${{ steps.compare.outputs.receiver_branch }}
+          RECEIVER_SHA: ${{ steps.compare.outputs.receiver_sha }}
+          SOURCE_REPOSITORY: ${{ steps.refs.outputs.source_repository }}
+          SOURCE_REF: ${{ steps.refs.outputs.source_ref }}
+          SOURCE_SHA: ${{ steps.compare.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
 
-          remote_head="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | awk '{print $1}')"
-          if [[ "$remote_head" != "$ORIGINAL_HEAD" ]]; then
-            echo "Target branch moved while this workflow was running." >&2
-            echo "Expected: $ORIGINAL_HEAD" >&2
-            echo "Actual:   $remote_head" >&2
+          if [[ "$RECEIVER_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
+            echo "This workflow can read any public receiver repository, but GITHUB_TOKEN can only push to $GITHUB_REPOSITORY." >&2
+            echo "Use dry_run=true, or run this workflow from the repository that should receive the push." >&2
             exit 1
           fi
 
+          output_branch="$REQUESTED_OUTPUT_BRANCH"
+          if [[ -z "$output_branch" ]]; then
+            if [[ -z "$RECEIVER_BRANCH" ]]; then
+              echo "receiver_ref is a tag or commit SHA. Set output_branch to store the merged result." >&2
+              exit 1
+            fi
+            output_branch="$RECEIVER_BRANCH"
+          fi
+          git check-ref-format --branch "$output_branch" >/dev/null
+
+          if [[ "$output_branch" == "$RECEIVER_BRANCH" ]]; then
+            remote_head="$(git ls-remote receiver "refs/heads/$output_branch" | awk '{print $1}')"
+            if [[ "$remote_head" != "$RECEIVER_SHA" ]]; then
+              echo "Receiver branch moved while this workflow was running." >&2
+              echo "Expected: $RECEIVER_SHA" >&2
+              echo "Actual:   $remote_head" >&2
+              exit 1
+            fi
+          fi
+
           if git diff --cached --quiet && [[ ! -f .git/MERGE_HEAD ]]; then
-            echo "Nothing to commit; branch is already synchronized."
+            echo "Nothing to commit; receiver already contains the requested source state."
             exit 0
           fi
 
-          git commit -m "Merge ${UPSTREAM_REPOSITORY}:${UPSTREAM_BRANCH} into ${TARGET_BRANCH}"
-          git push origin "HEAD:$TARGET_BRANCH"
+          git commit -m "Merge ${SOURCE_REPOSITORY}@${SOURCE_REF} into ${RECEIVER_REF} (receiver priority)"
+          git remote set-url receiver "https://x-access-token:${GH_TOKEN}@github.com/${RECEIVER_REPOSITORY}.git"
+          git push receiver "HEAD:refs/heads/$output_branch"
