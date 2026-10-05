@@ -1,0 +1,106 @@
+name: Test receiver-priority import of open upstream PRs
+
+on:
+  push:
+    branches:
+      - test/receiver-priority-open-prs
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import PR 8 then PR 7 with receiver priority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add pr8 https://github.com/TobeBestKK/ok-wuthering-waves-coco-labeling.git
+          git remote add pr7 https://github.com/boqigao/ok-wuthering-waves-coco-labeling.git
+          git fetch pr8 master
+          git fetch pr7 codex/yangyang-sp-annotations
+
+          import_one() {
+            local ref="$1"
+            local label="$2"
+            local target_sha base_sha merge_rc
+            target_sha="$(git rev-parse HEAD)"
+            base_sha="$(git merge-base "$target_sha" "$ref")"
+            echo "=== $label ==="
+            echo "target=$target_sha"
+            echo "source=$(git rev-parse "$ref")"
+            echo "base=$base_sha"
+            set +e
+            git merge --no-ff --no-commit "$ref"
+            merge_rc=$?
+            set -e
+            echo "raw_merge_rc=$merge_rc"
+            python scripts/sync/semantic_coco_merge.py \
+              --base-ref "$base_sha" \
+              --target-ref "$target_sha" \
+              --source-ref "$ref" \
+              --coco coco_annotations.json
+            test -z "$(git diff --name-only --diff-filter=U)"
+            git commit -m "test: import $label with receiver priority"
+          }
+
+          import_one pr8/master "upstream PR #8"
+          import_one pr7/codex/yangyang-sp-annotations "upstream PR #7"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('coco_annotations.json').read_text(encoding='utf-8'))
+          cats = {x['name']: int(x['id']) for x in data['categories']}
+          images = {x['file_name']: int(x['id']) for x in data['images']}
+
+          expected_cats = {
+              'char_lingyang': 287,
+              'douling_gua_blue': 288,
+              'douling_gua_yellow': 289,
+              'yangyang_sp_attack_sword': 290,
+              'yangyang_sp_attack_feather': 291,
+              'yangyang_sp_e_crescent': 292,
+              'yangyang_sp_e_feather': 293,
+              'yangyang_sp_heavy_azure': 294,
+              'yangyang_sp_heavy_air': 295,
+              'yangyang_sp_heavy_followup': 296,
+              'yangyang_sp_liberation': 297,
+          }
+          for name, expected_id in expected_cats.items():
+              actual = cats.get(name)
+              if actual != expected_id:
+                  raise SystemExit(f'{name}: expected category id {expected_id}, got {actual}')
+
+          if images.get('douling_gua_blue.png') != 296:
+              raise SystemExit(f"douling_gua_blue.png moved: {images.get('douling_gua_blue.png')}")
+          if images.get('douling_gua_yellow.png') != 297:
+              raise SystemExit(f"douling_gua_yellow.png moved: {images.get('douling_gua_yellow.png')}")
+
+          yangyang_names = [
+              'yangyang_sp_attack_feather.png',
+              'yangyang_sp_attack_sword.png',
+              'yangyang_sp_e_crescent.png',
+              'yangyang_sp_e_feather.png',
+              'yangyang_sp_heavy_air.png',
+              'yangyang_sp_heavy_azure.png',
+              'yangyang_sp_heavy_followup.png',
+              'yangyang_sp_liberation.png',
+          ]
+          yangyang_ids = [images[name] for name in yangyang_names]
+          if yangyang_ids != list(range(298, 306)):
+              raise SystemExit(f'unexpected Yangyang image ids: {yangyang_ids}')
+
+          for section in ('images', 'annotations', 'categories'):
+              ids = [int(x['id']) for x in data[section]]
+              if len(ids) != len(set(ids)):
+                  raise SystemExit(f'duplicate ids in {section}')
+
+          print('receiver-priority combined import passed')
+          print('category ids:', expected_cats)
+          print('yangyang image ids:', yangyang_ids)
+          PY
