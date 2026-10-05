@@ -1,0 +1,91 @@
+name: Test import all open upstream PRs
+
+on:
+  push:
+    branches:
+      - test/import-open-prs-combined
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sequentially import upstream PR 8 then PR 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add pr8 https://github.com/TobeBestKK/ok-wuthering-waves-coco-labeling.git
+          git remote add pr7 https://github.com/boqigao/ok-wuthering-waves-coco-labeling.git
+          git fetch pr8 master
+          git fetch pr7 codex/yangyang-sp-annotations
+
+          merge_one() {
+            local ref="$1"
+            local label="$2"
+            local original_head merge_base merge_rc
+            original_head="$(git rev-parse HEAD)"
+            merge_base="$(git merge-base "$original_head" "$ref")"
+            echo "=== $label ==="
+            echo "original=$original_head"
+            echo "incoming=$(git rev-parse "$ref")"
+            echo "merge_base=$merge_base"
+            set +e
+            git merge --no-ff --no-commit "$ref"
+            merge_rc=$?
+            set -e
+            echo "raw_merge_rc=$merge_rc"
+            python scripts/sync/semantic_coco_merge.py \
+              --base-ref "$merge_base" \
+              --ours-ref "$original_head" \
+              --theirs-ref "$ref" \
+              --coco coco_annotations.json
+            test -z "$(git diff --name-only --diff-filter=U)"
+            git commit -m "test: semantic import $label"
+          }
+
+          merge_one pr8/master "upstream PR #8"
+          merge_one pr7/codex/yangyang-sp-annotations "upstream PR #7"
+
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          data = json.loads(Path('coco_annotations.json').read_text(encoding='utf-8'))
+          names = [c['name'] for c in data['categories']]
+          expected = [
+              'char_lingyang',
+              'douling_gua_blue',
+              'douling_gua_yellow',
+              'yangyang_sp_attack_sword',
+              'yangyang_sp_attack_feather',
+              'yangyang_sp_e_crescent',
+              'yangyang_sp_e_feather',
+              'yangyang_sp_heavy_azure',
+              'yangyang_sp_heavy_air',
+              'yangyang_sp_heavy_followup',
+              'yangyang_sp_liberation',
+          ]
+          missing = [name for name in expected if name not in names]
+          if missing:
+              raise SystemExit(f'missing expected categories: {missing}')
+          for section in ('images', 'annotations', 'categories'):
+              ids = [int(item['id']) for item in data[section]]
+              dupes = [k for k, v in Counter(ids).items() if v > 1]
+              if dupes:
+                  raise SystemExit(f'duplicate {section} ids: {dupes}')
+          cats = {c['name']: c['id'] for c in data['categories'] if c['name'] in expected}
+          print('final category ids:', cats)
+          print('combined semantic import validation passed')
+          PY
+
+          git log --oneline -5
