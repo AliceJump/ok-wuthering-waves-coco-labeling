@@ -1,0 +1,45 @@
+name: Test import upstream PR 8
+
+on:
+  push:
+    branches:
+      - test/import-pr8-source
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge current upstream and run semantic resolver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/ok-oldking/ok-wuthering-waves-coco-labeling.git
+          git fetch upstream master
+          original_head="$(git rev-parse HEAD)"
+          upstream_ref="upstream/master"
+          merge_base="$(git merge-base "$original_head" "$upstream_ref")"
+          echo "original=$original_head"
+          echo "upstream=$(git rev-parse "$upstream_ref")"
+          echo "merge_base=$merge_base"
+          set +e
+          git merge --no-ff --no-commit "$upstream_ref"
+          merge_rc=$?
+          set -e
+          echo "raw_merge_rc=$merge_rc"
+          python scripts/sync/semantic_coco_merge.py \
+            --base-ref "$merge_base" \
+            --ours-ref "$original_head" \
+            --theirs-ref "$upstream_ref" \
+            --coco coco_annotations.json
+          test -z "$(git diff --name-only --diff-filter=U)"
+          git status --short
+          git diff --cached --stat || true
