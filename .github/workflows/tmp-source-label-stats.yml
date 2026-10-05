@@ -1,0 +1,77 @@
+name: Temporary source label stats
+on:
+  push:
+    branches:
+      - feature/source-labeling-semantic-audit
+permissions:
+  contents: read
+jobs:
+  stats:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Inspect source COCO structure
+        shell: python
+        run: |
+          import collections
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('coco_annotations.json').read_text(encoding='utf-8'))
+          images = data.get('images', [])
+          annotations = data.get('annotations', [])
+          categories = data.get('categories', [])
+          image_by_id = {x['id']: x for x in images}
+          cat_by_id = {x['id']: x for x in categories}
+          anns_by_cat = collections.defaultdict(list)
+          anns_by_image = collections.defaultdict(list)
+          for ann in annotations:
+              anns_by_cat[ann['category_id']].append(ann)
+              anns_by_image[ann['image_id']].append(ann)
+
+          files = collections.defaultdict(list)
+          for image in images:
+              files[image['file_name']].append(image['id'])
+          duplicate_files = {k: v for k, v in files.items() if len(v) > 1}
+          referenced = set(anns_by_image)
+          duplicate_referenced = {
+              k: [i for i in ids if i in referenced]
+              for k, ids in duplicate_files.items()
+              if len([i for i in ids if i in referenced]) > 1
+          }
+          missing = sorted({x['file_name'] for x in images if not Path(x['file_name']).is_file()})
+
+          multi_ann = []
+          multi_image = []
+          for cat_id, anns in anns_by_cat.items():
+              image_ids = sorted({x['image_id'] for x in anns})
+              name = cat_by_id.get(cat_id, {}).get('name', f'<missing:{cat_id}>')
+              if len(anns) > 1:
+                  multi_ann.append((name, cat_id, len(anns), image_ids, [x.get('bbox') for x in anns]))
+              if len(image_ids) > 1:
+                  multi_image.append((name, cat_id, len(anns), image_ids, [x.get('bbox') for x in anns]))
+
+          print(f'images={len(images)} unique_file_names={len(files)} duplicate_file_groups={len(duplicate_files)}')
+          print(f'annotations={len(annotations)} categories={len(categories)} referenced_images={len(referenced)}')
+          print(f'duplicate_file_groups_with_multiple_referenced_ids={len(duplicate_referenced)}')
+          print(f'missing_source_files={len(missing)}')
+          print(f'categories_with_multiple_annotations={len(multi_ann)}')
+          print(f'categories_spanning_multiple_image_ids={len(multi_image)}')
+
+          print('\nDUPLICATE FILE GROUPS WITH MULTIPLE REFERENCED IDS:')
+          for name, ids in sorted(duplicate_referenced.items())[:100]:
+              print(name, ids)
+
+          print('\nCATEGORIES WITH MULTIPLE ANNOTATIONS:')
+          for row in sorted(multi_ann)[:200]:
+              print(row)
+
+          print('\nCATEGORIES SPANNING MULTIPLE IMAGES:')
+          for row in sorted(multi_image)[:200]:
+              print(row)
+
+          print('\nMISSING SOURCE FILES:')
+          for name in missing[:200]:
+              print(name)
