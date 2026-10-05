@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+RESOLVER = Path(__file__).with_name('semantic_coco_merge.py').resolve()
+
+
+def run(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(list(args), cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if check and proc.returncode:
+        raise AssertionError(
+            f"command failed ({proc.returncode}): {' '.join(args)}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    return proc
+
+
+def write_coco(path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def commit_all(repo: Path, message: str) -> str:
+    run(repo, 'git', 'add', '-A')
+    run(repo, 'git', 'commit', '-m', message)
+    return run(repo, 'git', 'rev-parse', 'HEAD').stdout.strip()
+
+
+def setup_repo(tmp: str) -> Path:
+    repo = Path(tmp)
+    run(repo, 'git', 'init', '-b', 'main')
+    run(repo, 'git', 'config', 'user.name', 'test')
+    run(repo, 'git', 'config', 'user.email', 'test@example.com')
+    return repo
+
+
+def resolve(repo: Path, base: str, target: str, source: str, *, check: bool = True):
+    run(repo, 'git', 'checkout', 'target')
+    run(repo, 'git', 'reset', '--hard', target)
+    run(repo, 'git', 'merge', '--no-ff', '--no-commit', source, check=False)
+    return run(
+        repo,
+        sys.executable,
+        str(RESOLVER),
+        '--base-ref', base,
+        '--target-ref', target,
+        '--source-ref', source,
+        check=check,
+    )
+
+
+def empty_coco() -> dict:
+    return {'images': [], 'annotations': [], 'categories': []}
+
+
+def category(cat_id: int, name: str, supercategory: str = '') -> dict:
+    return {'id': cat_id, 'name': name, 'supercategory': supercategory}
+
+
+def image(image_id: int, name: str, width: int = 10, height: int = 10) -> dict:
+    return {'id': image_id, 'file_name': name, 'width': width, 'height': height}
+
+
+def annotation(ann_id: int, image_id: int, category_id: int, bbox=None) -> dict:
+    bbox = list(bbox or [1, 1, 2, 2])
+    return {
+        'id': ann_id,
+        'image_id': image_id,
+        'category_id': category_id,
+        'bbox': bbox,
+        'area': bbox[2] * bbox[3],
+        'iscrowd': 0,
+    }
+
+
+class SemanticLabelSourceMergeIntegrationTest(unittest.TestCase):
+    def test_target_wins_and_source_ids_are_remapped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = setup_repo(tmp)
+            base = empty_coco()
+            write_coco(repo / 'coco_annotations.json', base)
+            base_sha = commit_all(repo, 'base')
+
+            run(repo, 'git', 'checkout', '-b', 'target')
+            (repo / 'same.png').write_bytes(b'identical')
+            (repo / 'different.png').write_bytes(b'target-bytes')
+            target = {
+                'images': [image(5, 'same.png'), image(6, 'different.png')],
+                'categories': [category(5, 'target_same'), category(6, 'target_different')],
+                'annotations': [annotation(5, 5, 5), annotation(6, 6, 6, [2, 2, 2, 2])],
+            }
+            write_coco(repo / 'coco_annotations.json', target)
+            target_sha = commit_all(repo, 'target')
+
+            run(repo, 'git', 'checkout', '-b', 'source', base_sha)
+            (repo / 'same.png').write_bytes(b'identical')
+            (repo / 'different.png').write_bytes(b'source-bytes')
+            source = {
+                'images': [image(5, 'same.png'), image(6, 'different.png')],
+                'categories': [category(5, 'source_same'), category(6, 'source_different')],
+                'annotations': [annotation(5, 5, 5, [3, 3, 2, 2]), annotation(6, 6, 6, [4, 4, 2, 2])],
+            }
+            write_coco(repo / 'coco_annotations.json', source)
+            source_sha = commit_all(repo, 'source')
+
+            output = resolve(repo, base_sha, target_sha, source_sha)
+            self.assertIn('target priority', output.stdout)
+            data = json.loads((repo / 'coco_annotations.json').read_text())
+            cats = {item['name']: item['id'] for item in data['categories']}
+            self.assertEqual(cats['target_same'], 5)
+            self.assertEqual(cats['target_different'], 6)
+            self.assertGreater(cats['source_same'], 6)
+            self.assertGreater(cats['source_different'], 6)
+
+            target_same_regs = [x for x in data['images'] if x['file_name'] == 'same.png']
+            self.assertEqual(len(target_same_regs), 1)
+            self.assertEqual(target_same_regs[0]['id'], 5)
+            hashed = f"different_{hashlib.sha256(b'source-bytes').hexdigest()[:8]}.png"
+            self.assertTrue(any(x['file_name'] == hashed for x in data['images']))
+            self.assertEqual((repo / 'different.png').read_bytes(), b'target-bytes')
+            self.assertEqual((repo / hashed).read_bytes(), b'source-bytes')
+
+    def test_exact_label_name_reuses_target_category_even_if_metadata_differs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = setup_repo(tmp)
+            (repo / 'img.png').write_bytes(b'img')
+            base = {'images': [image(1, 'img.png')], 'annotations': [], 'categories': []}
+            write_coco(repo / 'coco_annotations.json', base)
+            base_sha = commit_all(repo, 'base')
+
+            run(repo, 'git', 'checkout', '-b', 'target')
+            target = json.loads(json.dumps(base))
+            target['categories'].append(category(10, 'foo', 'target-meta'))
+            write_coco(repo / 'coco_annotations.json', target)
+            target_sha = commit_all(repo, 'target')
+
+            run(repo, 'git', 'checkout', '-b', 'source', base_sha)
+            source = json.loads(json.dumps(base))
+            source['categories'].append(category(20, 'foo', 'source-meta'))
+            source['annotations'].append(annotation(20, 1, 20))
+            write_coco(repo / 'coco_annotations.json', source)
+            source_sha = commit_all(repo, 'source')
+
+            resolve(repo, base_sha, target_sha, source_sha)
+            data = json.loads((repo / 'coco_annotations.json').read_text())
+            foo = [x for x in data['categories'] if x['name'] == 'foo']
+            self.assertEqual(foo, [category(10, 'foo', 'target-meta')])
+            self.assertEqual(data['annotations'][0]['category_id'], 10)
+
+    def test_case_distinct_label_names_remain_distinct(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = setup_repo(tmp)
+            (repo / 'a.png').write_bytes(b'a')
+            (repo / 'b.png').write_bytes(b'b')
+            base = empty_coco()
+            write_coco(repo / 'coco_annotations.json', base)
+            base_sha = commit_all(repo, 'base')
+
+            run(repo, 'git', 'checkout', '-b', 'target')
+            target = {'images': [image(1, 'a.png')], 'categories': [category(1, 'Foo')], 'annotations': [annotation(1, 1, 1)]}
+            write_coco(repo / 'coco_annotations.json', target)
+            target_sha = commit_all(repo, 'target')
+
+            run(repo, 'git', 'checkout', '-b', 'source', base_sha)
+            # base branch did not have b.png; source owns it.
+            (repo / 'b.png').write_bytes(b'b')
+            source = {'images': [image(2, 'b.png')], 'categories': [category(2, 'foo')], 'annotations': [annotation(2, 2, 2)]}
+            write_coco(repo / 'coco_annotations.json', source)
+            source_sha = commit_all(repo, 'source')
+
+            resolve(repo, base_sha, target_sha, source_sha)
+            data = json.loads((repo / 'coco_annotations.json').read_text())
+            self.assertEqual({x['name'] for x in data['categories']}, {'Foo', 'foo'})
+
+    def test_source_multiple_annotations_for_same_label_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = setup_repo(tmp)
+            base = empty_coco()
+            write_coco(repo / 'coco_annotations.json', base)
+            base_sha = commit_all(repo, 'base')
+            run(repo, 'git', 'checkout', '-b', 'target')
+            target_sha = base_sha
+            run(repo, 'git', 'checkout', '-b', 'source', base_sha)
+            (repo / 'a.png').write_bytes(b'a')
+            source = {
+                'images': [image(1, 'a.png')],
+                'categories': [category(1, 'foo')],
+                'annotations': [annotation(1, 1, 1), annotation(2, 1, 1, [4, 4, 2, 2])],
+            }
+            write_coco(repo / 'coco_annotations.json', source)
+            source_sha = commit_all(repo, 'source')
+            result = resolve(repo, base_sha, target_sha, source_sha, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('multiple_annotations_for_label', result.stderr)
+
+    def test_target_and_source_same_label_different_definition_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = setup_repo(tmp)
+            (repo / 'shared.png').write_bytes(b'shared')
+            base = {'images': [image(1, 'shared.png')], 'categories': [], 'annotations': []}
+            write_coco(repo / 'coco_annotations.json', base)
+            base_sha = commit_all(repo, 'base')
+
+            run(repo, 'git', 'checkout', '-b', 'target')
+            target = json.loads(json.dumps(base))
+            target['categories'].append(category(10, 'foo'))
