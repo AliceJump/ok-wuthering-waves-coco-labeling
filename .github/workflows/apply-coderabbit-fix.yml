@@ -1,0 +1,112 @@
+name: Apply targeted CodeRabbit fix
+
+on:
+  push:
+    branches:
+      - fix/preserve-missing-referenced-target-image
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/preserve-missing-referenced-target-image
+          fetch-depth: 0
+      - name: Apply semantic merge fix and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          semantic_path = Path('scripts/sync/semantic_coco_merge.py')
+          text = semantic_path.read_text(encoding='utf-8')
+          old = '''    if target_path is None:\n        reusable = choose_reusable_image_registration(\n            metadata_matches,\n            image,\n            preferred_id=source_id,\n            referenced_ids=target_referenced_ids,\n        )\n'''
+          new = '''    if target_path is None:\n        # A target registration already used by a target annotation owns its\n        # missing-file state. Never fill that registration with source bytes,\n        # or the existing target bbox would silently start referring to source\n        # image content. Only redundant/unreferenced target registrations may\n        # be reused when their physical file is missing.\n        unreferenced_matches = [\n            item\n            for item in metadata_matches\n            if int(item["id"]) not in target_referenced_ids\n        ]\n        reusable = choose_reusable_image_registration(\n            unreferenced_matches,\n            image,\n            preferred_id=source_id,\n            referenced_ids=target_referenced_ids,\n        )\n'''
+          if old not in text:
+              raise SystemExit('expected target-path-missing reuse block not found')
+          text = text.replace(old, new, 1)
+
+          old2 = '''        if metadata_matches:\n            # Target metadata owns this source name but is incompatible with\n            # the incoming image dimensions. Keep target metadata untouched and\n            # place the source image under a deterministic new name.\n            new_name = unique_hashed_name(source_name, source_data, occupied_paths_by_key)\n'''
+          new2 = '''        if metadata_matches:\n            # Target metadata owns this source name. If no unreferenced target\n            # registration can safely absorb the source image, keep every\n            # target registration and its missing-file state untouched. The\n            # merge may already have materialized source_name, so remove that\n            # source path before placing the source bytes under a deterministic\n            # new name.\n            git("rm", "-f", "--ignore-unmatch", "--", source_name, check=False)\n            new_name = unique_hashed_name(source_name, source_data, occupied_paths_by_key)\n'''
+          if old2 not in text:
+              raise SystemExit('expected target-metadata rename block not found')
+          text = text.replace(old2, new2, 1)
+          semantic_path.write_text(text, encoding='utf-8')
+
+          test_path = Path('scripts/sync/test_semantic_coco_merge.py')
+          tests = test_path.read_text(encoding='utf-8')
+          marker = "\n\nif __name__ == '__main__':\n    unittest.main()\n"
+          case = r'''
+
+    def test_source_does_not_restore_missing_target_file_used_by_target_annotation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = setup_repo(tmp)
+            base = empty_coco()
+            write_coco(repo / 'coco_annotations.json', base)
+            base_sha = commit_all(repo, 'base')
+
+            run(repo, 'git', 'checkout', '-b', 'target')
+            target = {
+                'images': [image(10, 'missing.png')],
+                'categories': [category(10, 'target-label')],
+                'annotations': [annotation(10, 10, 10)],
+            }
+            write_coco(repo / 'coco_annotations.json', target)
+            target_sha = commit_all(repo, 'target metadata references missing file')
+
+            run(repo, 'git', 'checkout', '-b', 'source', base_sha)
+            source_bytes = b'source-image'
+            (repo / 'missing.png').write_bytes(source_bytes)
+            source = {
+                'images': [image(20, 'missing.png')],
+                'categories': [category(20, 'source-label')],
+                'annotations': [annotation(20, 20, 20, [4, 4, 2, 2])],
+            }
+            write_coco(repo / 'coco_annotations.json', source)
+            source_sha = commit_all(repo, 'source adds same-path image')
+
+            output = resolve(repo, base_sha, target_sha, source_sha)
+            data = json.loads((repo / 'coco_annotations.json').read_text())
+            hashed = f"missing_{hashlib.sha256(source_bytes).hexdigest()[:8]}.png"
+
+            target_ann = next(item for item in data['annotations'] if item['id'] == 10)
+            self.assertEqual(target_ann['image_id'], 10)
+            self.assertFalse((repo / 'missing.png').exists())
+            self.assertTrue((repo / hashed).is_file())
+            self.assertEqual((repo / hashed).read_bytes(), source_bytes)
+
+            source_cat_id = next(
+                item['id'] for item in data['categories'] if item['name'] == 'source-label'
+            )
+            source_ann = next(
+                item for item in data['annotations'] if item['category_id'] == source_cat_id
+            )
+            source_image = next(
+                item for item in data['images'] if item['id'] == source_ann['image_id']
+            )
+            self.assertEqual(source_image['file_name'], hashed)
+            self.assertIn('renamed-source-around-target-metadata', output.stdout)
+'''
+          if marker not in tests:
+              raise SystemExit('unittest main marker not found')
+          tests = tests.replace(marker, case + marker, 1)
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+
+          python -m unittest scripts/sync/test_semantic_coco_merge.py -v
+
+      - name: Commit fix and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-coderabbit-fix.yml
+          git add scripts/sync/semantic_coco_merge.py scripts/sync/test_semantic_coco_merge.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: preserve referenced target image state'
+          git push origin HEAD:fix/preserve-missing-referenced-target-image
