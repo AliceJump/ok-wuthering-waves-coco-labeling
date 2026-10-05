@@ -195,8 +195,8 @@ def audit_coco(
                 f"label/category name {name!r} is registered by multiple category ids {ids}",
             )
 
-    # Case/Unicode-equivalent names are distinct at runtime, so do not merge or
-    # reject them automatically. Surface them only as a typo-risk warning.
+    # Case/Unicode-equivalent source label names are still distinct exact strings.
+    # Do not guess that they mean the same label; surface only a typo-risk warning.
     for normalized, names in similar_category_names.items():
         if len(names) > 1:
             add(
