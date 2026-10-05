@@ -392,5 +392,55 @@ class SemanticLabelSourceMergeIntegrationTest(unittest.TestCase):
             self.assertIn('Target changed or removed base source image', result.stderr)
 
 
+    def test_source_does_not_restore_missing_target_file_used_by_target_annotation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = setup_repo(tmp)
+            base = empty_coco()
+            write_coco(repo / 'coco_annotations.json', base)
+            base_sha = commit_all(repo, 'base')
+
+            run(repo, 'git', 'checkout', '-b', 'target')
+            target = {
+                'images': [image(10, 'missing.png')],
+                'categories': [category(10, 'target-label')],
+                'annotations': [annotation(10, 10, 10)],
+            }
+            write_coco(repo / 'coco_annotations.json', target)
+            target_sha = commit_all(repo, 'target metadata references missing file')
+
+            run(repo, 'git', 'checkout', '-b', 'source', base_sha)
+            source_bytes = b'source-image'
+            (repo / 'missing.png').write_bytes(source_bytes)
+            source = {
+                'images': [image(20, 'missing.png')],
+                'categories': [category(20, 'source-label')],
+                'annotations': [annotation(20, 20, 20, [4, 4, 2, 2])],
+            }
+            write_coco(repo / 'coco_annotations.json', source)
+            source_sha = commit_all(repo, 'source adds same-path image')
+
+            output = resolve(repo, base_sha, target_sha, source_sha)
+            data = json.loads((repo / 'coco_annotations.json').read_text())
+            hashed = f"missing_{hashlib.sha256(source_bytes).hexdigest()[:8]}.png"
+
+            target_ann = next(item for item in data['annotations'] if item['id'] == 10)
+            self.assertEqual(target_ann['image_id'], 10)
+            self.assertFalse((repo / 'missing.png').exists())
+            self.assertTrue((repo / hashed).is_file())
+            self.assertEqual((repo / hashed).read_bytes(), source_bytes)
+
+            source_cat_id = next(
+                item['id'] for item in data['categories'] if item['name'] == 'source-label'
+            )
+            source_ann = next(
+                item for item in data['annotations'] if item['category_id'] == source_cat_id
+            )
+            source_image = next(
+                item for item in data['images'] if item['id'] == source_ann['image_id']
+            )
+            self.assertEqual(source_image['file_name'], hashed)
+            self.assertIn('renamed-source-around-target-metadata', output.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()
